@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>STEAMery Grant Finder — Live Progress</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--surf:#161b22;--surf2:#21262d;--border:#30363d;
+  --text:#e6edf3;--muted:#8b949e;--accent:#58a6ff;
+  --green:#3fb950;--yellow:#d29922;--red:#f85149;--purple:#bc8cff;
+}
+html{height:100%}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  background:var(--bg);color:var(--text);min-height:100vh;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:32px 20px;
+}
+.card{
+  background:var(--surf);border:1px solid var(--border);border-radius:16px;
+  padding:40px;max-width:580px;width:100%;
+}
+.eyebrow{
+  font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:16px
+}
+h1{
+  font-size:26px;font-weight:800;margin-bottom:6px;
+  background:linear-gradient(135deg,#e6edf3 0%,#58a6ff 50%,#bc8cff 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text
+}
+.subtitle{color:var(--muted);font-size:14px;margin-bottom:32px}
+
+/* Phase steps */
+.phases{display:flex;gap:0;margin-bottom:32px}
+.phase{
+  flex:1;text-align:center;font-size:11px;font-weight:600;
+  padding:8px 4px;border-bottom:2px solid var(--border);color:var(--muted);
+  transition:all .3s;position:relative
+}
+.phase.active{color:var(--accent);border-bottom-color:var(--accent)}
+.phase.done{color:var(--green);border-bottom-color:var(--green)}
+.phase .dot{
+  width:8px;height:8px;border-radius:50%;background:var(--border);
+  margin:0 auto 6px;transition:background .3s
+}
+.phase.active .dot{background:var(--accent);box-shadow:0 0 0 4px rgba(88,166,255,.15);animation:pulse 1.5s infinite}
+.phase.done .dot{background:var(--green)}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 4px rgba(88,166,255,.15)}50%{box-shadow:0 0 0 8px rgba(88,166,255,.05)}}
+
+/* Stats row */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:28px}
+.stat{
+  background:var(--surf2);border:1px solid var(--border);border-radius:10px;
+  padding:14px;text-align:center
+}
+.stat .n{font-size:28px;font-weight:800;display:block;line-height:1}
+.stat .l{font-size:11px;color:var(--muted);margin-top:4px;text-transform:uppercase;letter-spacing:.06em}
+.stat.g .n{color:var(--green)}
+.stat.y .n{color:var(--yellow)}
+.stat.r .n{color:var(--red)}
+
+/* Progress bar */
+.bar-wrap{margin-bottom:10px}
+.bar-label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px}
+.bar-track{height:6px;background:var(--surf2);border-radius:99px;overflow:hidden}
+.bar-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--accent),var(--purple));transition:width .5s ease}
+
+/* Current action */
+.action-box{
+  background:var(--surf2);border:1px solid var(--border);border-radius:10px;
+  padding:14px 16px;font-size:13px;color:var(--muted);margin-bottom:24px;
+  min-height:44px;display:flex;align-items:center;gap:10px
+}
+.spinner{
+  width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);
+  border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Done state */
+.done-box{display:none;text-align:center;padding:8px 0}
+.done-icon{font-size:52px;margin-bottom:12px}
+.open-btn{
+  display:inline-flex;align-items:center;gap:8px;
+  background:linear-gradient(135deg,#1a6b33,var(--green));
+  color:#fff;font-size:15px;font-weight:700;
+  padding:14px 32px;border-radius:10px;border:none;cursor:pointer;
+  text-decoration:none;transition:opacity .15s;margin-top:16px
+}
+.open-btn:hover{opacity:.88}
+
+.refresh-note{color:var(--muted);font-size:11px;text-align:center;margin-top:20px}
+.elapsed{color:var(--muted);font-size:12px;text-align:center;margin-bottom:20px}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="eyebrow">&#128302; STEAMery Grant Discovery Tool</div>
+  <h1>Live Progress</h1>
+  <p class="subtitle">Running the full grant search for Kirstie Tiernan &mdash; Brown County, Indiana</p>
+
+  <!-- Phase indicator -->
+  <div class="phases" id="phases">
+    <div class="phase" id="ph-discovery"><div class="dot"></div>Discovery</div>
+    <div class="phase" id="ph-screening"><div class="dot"></div>Screening</div>
+    <div class="phase" id="ph-grant_history"><div class="dot"></div>Grant History</div>
+    <div class="phase" id="ph-output"><div class="dot"></div>Output</div>
+    <div class="phase" id="ph-done"><div class="dot"></div>Done</div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats">
+    <div class="stat"><span class="n" id="s-unique">—</span><div class="l">Orgs found</div></div>
+    <div class="stat"><span class="n" id="s-screened">—</span><div class="l">Screened</div></div>
+    <div class="stat g"><span class="n" id="s-passed">—</span><div class="l">Passed</div></div>
+  </div>
+
+  <!-- Search progress bar -->
+  <div class="bar-wrap" id="bar-search-wrap">
+    <div class="bar-label"><span>Foundation search</span><span id="bar-search-pct">0%</span></div>
+    <div class="bar-track"><div class="bar-fill" id="bar-search" style="width:0%"></div></div>
+  </div>
+
+  <!-- Screening progress bar -->
+  <div class="bar-wrap" id="bar-screen-wrap" style="margin-top:12px">
+    <div class="bar-label"><span>Eligibility screening</span><span id="bar-screen-pct">0%</span></div>
+    <div class="bar-track"><div class="bar-fill" id="bar-screen" style="width:0%;background:linear-gradient(90deg,#3fb950,#56d364)"></div></div>
+  </div>
+
+  <div style="height:20px"></div>
+
+  <!-- Current action -->
+  <div class="action-box" id="action-box">
+    <div class="spinner" id="spinner"></div>
+    <span id="action-text">Waiting for script to start... (open a Terminal and run: python3 steamery_grant_finder.py)</span>
+  </div>
+
+  <div class="elapsed" id="elapsed"></div>
+
+  <!-- Done state -->
+  <div class="done-box" id="done-box">
+    <div class="done-icon">&#10004;&#65039;</div>
+    <div style="font-size:20px;font-weight:800;margin-bottom:8px">Search Complete!</div>
+    <div style="color:var(--muted);font-size:14px;margin-bottom:4px" id="done-summary"></div>
+    <a href="report.html" class="open-btn">Open Full Report &rarr;</a>
+  </div>
+</div>
+
+<div class="refresh-note" id="refresh-note">Auto-refreshing every 3 seconds &bull; <a href="progress.html" style="color:var(--muted)">reload</a></div>
+
+<script>
+var startTs = null;
+
+function fmt(n){
+  if(n===null||n===undefined||n==='')return '—';
+  return n.toLocaleString();
+}
+
+function fmtElapsed(startedAt){
+  if(!startedAt) return '';
+  var s = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
+  if(s < 60) return s + 's elapsed';
+  var m = Math.floor(s/60), r = s%60;
+  return m + 'm ' + r + 's elapsed';
+}
+
+function setPhase(phase){
+  var order = ['discovery','screening','grant_history','output','done'];
+  var idx = order.indexOf(phase);
+  order.forEach(function(p, i){
+    var el = document.getElementById('ph-' + p);
+    if(!el) return;
+    el.className = 'phase';
+    if(i < idx) el.classList.add('done');
+    else if(i === idx) el.classList.add('active');
+  });
+}
+
+function update(){
+  fetch('progress.json?_=' + Date.now())
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      // Phase
+      setPhase(d.phase || 'discovery');
+
+      // Stats
+      document.getElementById('s-unique').textContent   = fmt(d.unique_orgs);
+      document.getElementById('s-screened').textContent  = fmt(d.screened);
+      document.getElementById('s-passed').textContent    = fmt((d.passed||0)+(d.flagged||0));
+
+      // Search bar
+      var sp = d.search_total ? Math.min(100, Math.round(d.search_done / d.search_total * 100)) : 0;
+      document.getElementById('bar-search').style.width = sp + '%';
+      document.getElementById('bar-search-pct').textContent = sp + '%';
+
+      // Screen bar
+      var sc = d.screened_total ? Math.min(100, Math.round((d.screened||0) / d.screened_total * 100)) : 0;
+      document.getElementById('bar-screen').style.width = sc + '%';
+      document.getElementById('bar-screen-pct').textContent = sc + '%';
+
+      // Action text
+      document.getElementById('action-text').textContent = d.current_action || '...';
+
+      // Elapsed
+      if(d.started_at){
+        document.getElementById('elapsed').textContent = fmtElapsed(d.started_at);
+      }
+
+      // Done state
+      if(d.status === 'done' || d.report_ready){
+        document.getElementById('action-box').style.display = 'none';
+        document.getElementById('done-box').style.display = 'block';
+        document.getElementById('refresh-note').style.display = 'none';
+        document.getElementById('elapsed').style.display = 'none';
+        var tot = (d.passed||0)+(d.flagged||0);
+        document.getElementById('done-summary').textContent =
+          (d.screened||0) + ' foundations screened — ' + tot + ' passed, ' + (d.failed||0) + ' screened out.';
+        setPhase('done');
+      }
+    })
+    .catch(function(){
+      document.getElementById('action-text').textContent =
+        'Waiting for progress.json... Script not started yet? Run: python3 steamery_grant_finder.py';
+    });
+}
+
+update();
+setInterval(update, 3000);
+</script>
+</body>
+</html>

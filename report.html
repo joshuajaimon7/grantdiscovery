@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>STEAMery Grant Discovery Report</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--surf:#161b22;--surf2:#21262d;--border:#30363d;
+  --text:#e6edf3;--muted:#8b949e;--accent:#58a6ff;
+  --green:#3fb950;--yellow:#d29922;--red:#f85149;--purple:#bc8cff;
+  --r:8px;--rl:12px;
+}
+html{scroll-behavior:smooth}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  background:var(--bg);color:var(--text);line-height:1.6;font-size:14px}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* Header */
+.hdr{
+  background:linear-gradient(135deg,#0d1117 0%,#1a1f35 50%,#0d1117 100%);
+  border-bottom:1px solid var(--border);
+  padding:52px 32px 44px;text-align:center;position:relative;overflow:hidden
+}
+.hdr::before{
+  content:"";position:absolute;inset:0;
+  background:radial-gradient(ellipse at 50% 0%,rgba(88,166,255,.09) 0%,transparent 68%);
+  pointer-events:none
+}
+.hdr-eyebrow{
+  font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:14px
+}
+.hdr h1{
+  font-size:clamp(26px,5vw,46px);font-weight:800;line-height:1.12;margin-bottom:14px;
+  background:linear-gradient(135deg,#e6edf3 0%,#58a6ff 45%,#bc8cff 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text
+}
+.hdr-sub{color:var(--muted);font-size:15px;max-width:580px;margin:0 auto 28px}
+.stats{display:flex;gap:24px;justify-content:center;flex-wrap:wrap;margin-top:20px}
+.stat{
+  background:var(--surf);border:1px solid var(--border);border-radius:999px;
+  padding:8px 22px;font-size:13px;font-weight:500;text-align:center
+}
+.stat .n{font-size:20px;font-weight:800;display:block}
+.stat.g .n{color:var(--green)}.stat.y .n{color:var(--yellow)}.stat.r .n{color:var(--red)}
+
+/* Layout */
+.wrap{max-width:1440px;margin:0 auto;padding:0 24px}
+.sec{padding:44px 0}
+.sec-title{
+  font-size:20px;font-weight:700;margin-bottom:22px;
+  display:flex;align-items:center;gap:10px
+}
+.sec-title .ico{font-size:22px}
+.sec-title .sub{color:var(--muted);font-size:13px;font-weight:400}
+
+/* Disqualifier box */
+.disq{
+  background:var(--surf);border:1px solid rgba(248,81,73,.3);
+  border-radius:var(--rl);padding:20px 24px;margin:20px 0
+}
+.disq h3{color:var(--red);font-size:14px;font-weight:700;margin-bottom:10px}
+.disq p{color:var(--muted);font-size:13px;margin-bottom:10px}
+.disq ul{padding-left:18px}
+.disq li{color:var(--muted);font-size:13px;margin-bottom:6px;line-height:1.5}
+
+/* Cards */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px}
+.card{
+  background:var(--surf);border:1px solid var(--border);border-radius:var(--rl);
+  padding:20px;position:relative;overflow:hidden;
+  transition:border-color .2s,box-shadow .2s
+}
+.card:hover{border-color:var(--accent);box-shadow:0 0 0 1px rgba(88,166,255,.2),0 8px 24px rgba(0,0,0,.35)}
+.card::before{content:"";position:absolute;top:0;left:0;right:0;height:3px}
+.card.high-fit::before{background:var(--green)}
+.card.worth-a-look::before{background:var(--yellow)}
+.card.long-shot::before{background:var(--muted)}
+.card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px}
+.card-name{font-size:15px;font-weight:700;line-height:1.3;flex:1}
+.card-loc{color:var(--muted);font-size:12px;margin-bottom:8px}
+.card-assets{font-size:24px;font-weight:800;color:var(--accent);margin-bottom:8px}
+.card-why{
+  font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px;
+  border-left:2px solid var(--border);padding-left:10px
+}
+.evidence{
+  background:rgba(63,185,80,.07);border:1px solid rgba(63,185,80,.2);
+  border-radius:var(--r);padding:10px 12px;font-size:12px;margin-bottom:12px;line-height:1.5
+}
+.ev-label{
+  color:var(--green);font-weight:700;font-size:10px;text-transform:uppercase;
+  letter-spacing:.08em;display:block;margin-bottom:4px
+}
+.flag-note{
+  background:rgba(88,166,255,.07);border:1px solid rgba(88,166,255,.15);
+  border-radius:var(--r);padding:8px 12px;font-size:11px;color:var(--muted);margin-bottom:12px
+}
+.flag-note strong{color:var(--accent)}
+.pp-link{
+  display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;
+  color:var(--accent);border:1px solid var(--border);border-radius:6px;padding:5px 12px;
+  transition:background .15s,border-color .15s
+}
+.pp-link:hover{background:rgba(88,166,255,.1);border-color:var(--accent);text-decoration:none}
+
+/* Badge */
+.badge{
+  display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;
+  font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap
+}
+.badge.high-fit{background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3)}
+.badge.worth-a-look{background:rgba(227,179,65,.15);color:#e3b341;border:1px solid rgba(227,179,65,.3)}
+.badge.long-shot{background:rgba(139,148,158,.15);color:#8b949e;border:1px solid rgba(139,148,158,.3)}
+.badge.pass{background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3)}
+.badge.flag{background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3)}
+.badge.fail{background:rgba(248,81,73,.12);color:#f85149;border:1px solid rgba(248,81,73,.25)}
+.badge.not_screened{background:rgba(139,148,158,.1);color:#8b949e;border:1px solid rgba(139,148,158,.2)}
+
+/* Table */
+.table-ctrl{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.srch{
+  background:var(--surf);border:1px solid var(--border);border-radius:var(--r);
+  color:var(--text);padding:8px 14px;font-size:13px;outline:none;width:260px;
+  transition:border-color .15s
+}
+.srch:focus{border-color:var(--accent)}
+.fbtn{
+  background:var(--surf);border:1px solid var(--border);border-radius:var(--r);
+  color:var(--muted);padding:7px 14px;font-size:12px;cursor:pointer;
+  transition:all .15s;font-weight:500
+}
+.fbtn.on{background:rgba(88,166,255,.12);border-color:var(--accent);color:var(--accent)}
+.fbtn:hover{border-color:var(--muted);color:var(--text)}
+.tbl-wrap{overflow-x:auto;border-radius:var(--rl);border:1px solid var(--border)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead{background:var(--surf2)}
+thead th{
+  padding:11px 14px;text-align:left;font-weight:600;color:var(--muted);
+  font-size:11px;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;
+  cursor:pointer;user-select:none
+}
+thead th:hover{color:var(--text)}
+thead th.srt .arr{color:var(--accent);opacity:1}
+.arr{opacity:.35;margin-left:4px}
+tbody tr{border-top:1px solid var(--border);transition:background .1s}
+tbody tr:hover{background:var(--surf2)}
+tbody tr.hidden{display:none}
+td{padding:11px 14px;vertical-align:top}
+.td-name{font-weight:600;max-width:190px;word-break:break-word}
+.td-loc{color:var(--muted);font-size:12px}
+.td-assets{font-weight:700;color:var(--accent);white-space:nowrap}
+.ntee-chip{
+  background:var(--surf2);border-radius:4px;padding:2px 7px;
+  font-size:11px;color:var(--purple);font-family:monospace
+}
+.tier{
+  background:var(--surf2);border:1px solid var(--border);border-radius:999px;
+  padding:1px 8px;font-size:10px;color:var(--muted);font-weight:600
+}
+.tier.t1{color:var(--green);border-color:rgba(63,185,80,.3)}
+.td-reason{color:var(--muted);font-size:12px;max-width:240px;line-height:1.4}
+.pp-mini{
+  color:var(--accent);border:1px solid var(--border);border-radius:5px;
+  padding:2px 8px;font-size:11px;font-weight:600;white-space:nowrap;
+  transition:background .15s
+}
+.pp-mini:hover{background:rgba(88,166,255,.1);text-decoration:none}
+
+/* Email templates */
+.email-block{
+  background:var(--surf);border:1px solid var(--border);border-radius:var(--rl);
+  margin-bottom:16px;overflow:hidden
+}
+.email-hdr{
+  display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;
+  padding:14px 18px;background:var(--surf2);border-bottom:1px solid var(--border)
+}
+.email-name{font-weight:700;font-size:14px}
+.email-body{
+  margin:0;padding:18px;font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace;
+  font-size:12px;line-height:1.7;color:var(--text);white-space:pre-wrap;word-break:break-word;
+  background:var(--bg);max-height:320px;overflow-y:auto
+}
+.email-body::-webkit-scrollbar{width:6px}
+.email-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.copy-btn{
+  background:var(--surf);border:1px solid var(--border);border-radius:6px;
+  color:var(--accent);padding:5px 14px;font-size:12px;font-weight:600;cursor:pointer;
+  transition:all .15s
+}
+.copy-btn:hover{background:rgba(88,166,255,.1);border-color:var(--accent)}
+.copy-btn.copied{color:var(--green);border-color:rgba(63,185,80,.4)}
+
+/* Footer */
+.ftr{
+  border-top:1px solid var(--border);padding:24px 32px;text-align:center;
+  color:var(--muted);font-size:12px;line-height:1.9
+}
+@media(max-width:768px){
+  .hdr{padding:32px 16px}
+  .wrap{padding:0 14px}
+  .grid{grid-template-columns:1fr}
+  .srch{width:100%}
+  .email-hdr{flex-direction:column;align-items:flex-start}
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-eyebrow">&#128302; STEAMery Grant Discovery Tool</div>
+  <h1>Private Foundation<br>Discovery Report</h1>
+  <p class="hdr-sub">
+    Surfacing plausible funders for The STEAMery &mdash; a STEAM education
+    facility in Nashville, Brown County, Indiana. Generated August 09, 2026 at 17:24 UTC.
+  </p>
+  <div class="stats">
+    <div class="stat"><span class="n">25</span>Foundations examined</div>
+    <div class="stat g"><span class="n">1</span>Pass screening</div>
+    <div class="stat y"><span class="n">0</span>Flagged (verify)</div>
+    <div class="stat r"><span class="n">24</span>Screened out</div>
+  </div>
+</div>
+
+<div class="wrap">
+
+<!-- HARD DISQUALIFIERS -->
+<div class="sec">
+  <div class="disq">
+    <h3>&#9888; The STEAMery&rsquo;s Hard Disqualifiers &mdash; Always Verify Before Applying</h3>
+    <p>The API cannot confirm whether any given foundation enforces these requirements.
+    Verify directly against each foundation&rsquo;s website or 990-PF before pursuing an application.</p>
+    <ul><li>Requires applicant org history >= 2 years -- The STEAMery incorporated Dec 2024 (<1 yr old)</li><li>Requires municipal applicant -- The STEAMery is a 501(c)(3), NOT a municipality and cannot become one</li><li>Requires site control (ownership or recorded long-term lease) -- The STEAMery has neither yet</li><li>Requires audited financial statements -- none available</li><li>Requires paid staff or minimum operating budget -- pre-revenue with no paid staff</li></ul>
+  </div>
+</div>
+
+<!-- TOP CANDIDATES -->
+<div class="sec">
+  <div class="sec-title">
+    <span class="ico">&#127942;</span>
+    Top Candidates
+    <span class="sub">&nbsp;&mdash; highest-confidence, pass-screening foundations</span>
+  </div>
+  <div class="grid">
+    
+      <div class="card worth-a-look">
+        <div class="card-top">
+          <div class="card-name">Ruthmere Foundation Inc</div>
+          <span class="badge worth-a-look">worth a look</span>
+        </div>
+        <div class="card-loc">&#128205; Elkhart, IN</div>
+        <div class="card-assets">$11.8M</div>
+        <div class="card-why">Indiana-based; right-sized for emerging nonprofits.</div>
+        
+        
+        <a class="pp-link" href="https://projects.propublica.org/nonprofits/organizations/320037914" target="_blank">View on ProPublica &rarr;</a>
+      </div>
+  </div>
+</div>
+
+<!-- FULL TABLE -->
+<div class="sec">
+  <div class="sec-title">
+    <span class="ico">&#128203;</span>
+    All Screened Foundations
+    <span class="sub">&nbsp;&mdash; full auditable log (25 organizations)</span>
+  </div>
+  <div class="table-ctrl">
+    <input class="srch" id="srch" placeholder="&#128269;  Search name, city, NTEE&hellip;" oninput="ft()">
+    <button class="fbtn on"  onclick="sf('all',this)">All</button>
+    <button class="fbtn"     onclick="sf('pass',this)">&#10003; Pass</button>
+    <button class="fbtn"     onclick="sf('flag',this)">&#9873; Flag</button>
+    <button class="fbtn"     onclick="sf('fail',this)">&#10007; Screened out</button>
+    <button class="fbtn"     onclick="sf('high fit',this)">&#11088; High fit</button>
+  </div>
+  <div class="tbl-wrap">
+    <table id="tbl">
+      <thead><tr>
+        <th onclick="st(0)">Foundation <span class="arr">&#8597;</span></th>
+        <th onclick="st(1)">Location <span class="arr">&#8597;</span></th>
+        <th onclick="st(2)">Assets <span class="arr">&#8597;</span></th>
+        <th>NTEE</th><th>Tier</th><th>Verdict</th><th>Confidence</th>
+        <th>Reason / Note</th><th>Grant History</th><th>Link</th>
+      </tr></thead>
+      <tbody id="tb">
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Siangbawi Foundation</td>
+        <td class="td-loc">Indianapolis, IN</td>
+        <td class="td-assets" data-sort="0">$0</td>
+        <td><code class="ntee-chip">A50</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=16 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/843859827" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Winton Foundation</td>
+        <td class="td-loc">Hammond, IN</td>
+        <td class="td-assets" data-sort="0">$0</td>
+        <td><code class="ntee-chip">A25</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=16 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/871656545" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Parker Foundation</td>
+        <td class="td-loc">Batesville, IN</td>
+        <td class="td-assets" data-sort="1">$1</td>
+        <td><code class="ntee-chip">A01</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=16 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/992760638" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Foundations Music</td>
+        <td class="td-loc">Bloomfield, IN</td>
+        <td class="td-assets" data-sort="0">$0</td>
+        <td><code class="ntee-chip">A25</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=15 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/991103744" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="pass" data-conf="worth a look">
+        <td class="td-name">Ruthmere Foundation Inc</td>
+        <td class="td-loc">Elkhart, IN</td>
+        <td class="td-assets" data-sort="11849900">$11.8M</td>
+        <td><code class="ntee-chip">A50</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge pass">pass</span></td>
+        <td><span class="badge worth-a-look">worth a look</span></td>
+        <td class="td-reason">&mdash;</td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/320037914" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Grouseland Foundation Inc</td>
+        <td class="td-loc">Vincennes, IN</td>
+        <td class="td-assets" data-sort="2432550">$2.4M</td>
+        <td><code class="ntee-chip">A54</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=16 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/352088602" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Upr Foundation Inc</td>
+        <td class="td-loc">West Lafayette, IN</td>
+        <td class="td-assets" data-sort="1302142">$1.3M</td>
+        <td><code class="ntee-chip">A20</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=15 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/203579367" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Bcc Foundation Inc</td>
+        <td class="td-loc">Indianapolis, IN</td>
+        <td class="td-assets" data-sort="22000">$22K</td>
+        <td><code class="ntee-chip">A82</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=15 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/991593235" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Prn Foundation Inc</td>
+        <td class="td-loc">Indianapolis, IN</td>
+        <td class="td-assets" data-sort="21973">$22K</td>
+        <td><code class="ntee-chip">A68</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=16 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/843202629" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">1852 Foundation Inc</td>
+        <td class="td-loc">Lafayette, IN</td>
+        <td class="td-assets" data-sort="1093582">$1.1M</td>
+        <td><code class="ntee-chip">A80</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=15 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/473942649" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">95th Division Foundation</td>
+        <td class="td-loc">Fort Wayne, IN</td>
+        <td class="td-assets" data-sort="16778">$17K</td>
+        <td><code class="ntee-chip">A84</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">Assets too low ($35,100) -- likely dormant or inactive. Minimum threshold: $50,000.</td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/731597499" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Dda Company Foundation</td>
+        <td class="td-loc">Francesville, IN</td>
+        <td class="td-assets" data-sort="8855">$9K</td>
+        <td><code class="ntee-chip">A62</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">Assets too low ($16,094) -- likely dormant or inactive. Minimum threshold: $50,000.</td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/831562457" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Lafayette Symphony Foundation</td>
+        <td class="td-loc">Lafayette, IN</td>
+        <td class="td-assets" data-sort="3630544">$3.6M</td>
+        <td><code class="ntee-chip">A116</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=17 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/352080594" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Elston Memorial Foundation</td>
+        <td class="td-loc">Crawfordsvlle, IN</td>
+        <td class="td-assets" data-sort="0">$0</td>
+        <td><code class="ntee-chip">A50</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=15 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/310913802" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Gl Foundation Inc</td>
+        <td class="td-loc">Greentown, IN</td>
+        <td class="td-assets" data-sort="0">$0</td>
+        <td><code class="ntee-chip">A61</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=16 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/932810284" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Humanetrix Foundation Inc</td>
+        <td class="td-loc">Bloomington, IN</td>
+        <td class="td-assets" data-sort="0">$0</td>
+        <td><code class="ntee-chip">A30</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=15 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/352147189" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Icomusic Foundation Corporation</td>
+        <td class="td-loc">Muncie, IN</td>
+        <td class="td-assets" data-sort="0">$0</td>
+        <td><code class="ntee-chip">A6C</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=16 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/931417759" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Just Play Foundation</td>
+        <td class="td-loc">Indianapolis, IN</td>
+        <td class="td-assets" data-sort="0">$0</td>
+        <td><code class="ntee-chip">A20</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=16 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/991900873" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Maxinkuckee Theatre Foundation</td>
+        <td class="td-loc">Culver, IN</td>
+        <td class="td-assets" data-sort="0">$0</td>
+        <td><code class="ntee-chip">A61</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=15 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/811586185" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Melody Culture Foundation</td>
+        <td class="td-loc">Carmel, IN</td>
+        <td class="td-assets" data-sort="0">$0</td>
+        <td><code class="ntee-chip">A31</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=15 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/571216673" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Midwest Clinic Foundation</td>
+        <td class="td-loc">Indianapolis, IN</td>
+        <td class="td-assets" data-sort="0">$0</td>
+        <td><code class="ntee-chip">A25</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=15 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/881295159" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Unity Light Foundation</td>
+        <td class="td-loc">Fort Wayne, IN</td>
+        <td class="td-assets" data-sort="0">$0</td>
+        <td><code class="ntee-chip">A20</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=15 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/415097948" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Avenue Foundation Inc</td>
+        <td class="td-loc">Indianapolis, IN</td>
+        <td class="td-assets" data-sort="0">Unknown</td>
+        <td><code class="ntee-chip">A12</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=15 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/873018793" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Community Vision Foundation</td>
+        <td class="td-loc">Schererville, IN</td>
+        <td class="td-assets" data-sort="0">Unknown</td>
+        <td><code class="ntee-chip">A23</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=16 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/811527401" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr>
+
+      <tr data-verdict="fail" data-conf="">
+        <td class="td-name">Fame Foundation Inc</td>
+        <td class="td-loc">Indianapolis, IN</td>
+        <td class="td-assets" data-sort="0">Unknown</td>
+        <td><code class="ntee-chip">A20</code></td>
+        <td><span class="tier t1">T1</span></td>
+        <td><span class="badge fail">fail</span></td>
+        <td>&mdash;</td>
+        <td class="td-reason">IRS foundation_code=15 classifies this org as a public charity (not a private foundation). Codes 10-21 = various public support categories. </td>
+        <td><span style="color:var(--muted);font-size:11px;">N/A</span></td>
+        <td><a href="https://projects.propublica.org/nonprofits/organizations/850547221" target="_blank" class="pp-mini">View &rarr;</a></td>
+      </tr></tbody>
+    </table>
+  </div>
+  <p style="color:var(--muted);font-size:11px;margin-top:8px">
+    All financial data from most recent available IRS 990-PF filing via ProPublica.
+    Verify all candidates at their ProPublica page before acting.
+  </p>
+</div>
+
+</div>
+
+<!-- EMAIL TEMPLATES -->
+
+<div class="sec" style="padding-bottom:60px">
+  <div class="sec-title">
+    <span class="ico">&#9993;</span>
+    Draft Outreach Emails
+    <span class="sub">&nbsp;&mdash; personalized first-contact drafts for top candidates.
+    Review, customize, and verify eligibility before sending.</span>
+  </div>
+  <div class="disq" style="border-color:rgba(227,179,65,.3);margin-bottom:24px">
+    <h3 style="color:var(--yellow)">&#9888; Before sending any email:</h3>
+    <ul>
+      <li>Visit the foundation&rsquo;s website to confirm they accept unsolicited inquiries</li>
+      <li>Review their most recent 990-PF on ProPublica to check giving history and grant size</li>
+      <li>Verify The STEAMery meets their eligibility requirements (see hard disqualifiers above)</li>
+      <li>Customize the bracketed [placeholders] with real details</li>
+      <li>Find the correct contact name &mdash; &ldquo;Grants Team&rdquo; is a placeholder</li>
+    </ul>
+  </div>
+  
+    <div class="email-block">
+      <div class="email-hdr">
+        <div>
+          <span class="email-name">Ruthmere Foundation Inc</span>
+          <span class="badge worth-a-look" style="margin-left:8px">worth a look</span>
+          <span style="color:var(--muted);font-size:12px;margin-left:10px">$11.8M</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <a href="https://projects.propublica.org/nonprofits/organizations/320037914" target="_blank" class="pp-mini">ProPublica &rarr;</a>
+          <button class="copy-btn" onclick="copyEmail('email_0')">Copy</button>
+        </div>
+      </div>
+      <pre id="email_0" class="email-body">Subject: Grant Inquiry -- The STEAMery, Brown County, Indiana
+
+Dear Ruthmere Foundation Inc Grants Team,
+
+My name is Kirstie Tiernan, and I am the founder of The STEAMery, a new
+501(c)(3) nonprofit in Nashville, Indiana (Brown County). We are working to
+convert a historic 1920s sock factory into a hands-on STEAM education facility
+serving rural youth and the broader community in one of Indiana's most
+economically under-resourced counties.
+
+Based on Ruthmere Foundation Inc's focus on arts and culture, I believe our mission is closely aligned with your grantmaking priorities.
+
+
+We are in the early stages of our capital campaign and would welcome the
+opportunity to learn more about Ruthmere Foundation Inc's current grantmaking priorities
+and whether our work might be a good fit for your support. I'd love to share
+a one-page project summary or schedule a brief call at your convenience.
+
+Thank you sincerely for your time and for the meaningful work Ruthmere Foundation Inc does
+in [their community / Indiana / the region -- customize].
+
+With warm regards,
+Kirstie Tiernan
+Founder, The STEAMery
+Nashville, Indiana 47448
+[your email] | [website URL]
+
+--- TOOL NOTE (delete before sending) ---
+ProPublica profile:    https://projects.propublica.org/nonprofits/organizations/320037914
+Assets (most recent):  $11.8M
+Typical grant est.:    Unknown
+Similar past grants:   0 found in IRS XML
+ALWAYS verify eligibility requirements before sending this email.
+Review their website and most recent 990-PF before reaching out.
+-----------------------------------------
+</pre>
+    </div>
+</div>
+
+</div>
+
+<!-- FOOTER -->
+<div class="ftr">
+  Generated by the STEAMery Grant Discovery Tool v2.0 (volunteer project) &bull;
+  Data: ProPublica Nonprofit Explorer API &bull;
+  <a href="https://projects.propublica.org/nonprofits/api/">API docs</a><br>
+  <strong>This tool surfaces plausible candidates &mdash; it does not guarantee eligibility.
+  Always verify requirements directly with each foundation before Kirstie applies.</strong>
+</div>
+
+<script>
+var flt='all',srt={c:-1,d:1};
+function ft(){
+  var q=document.getElementById('srch').value.toLowerCase();
+  document.querySelectorAll('#tb tr').forEach(function(r){
+    var v=r.dataset.verdict||'',cf=r.dataset.conf||'',tx=r.textContent.toLowerCase();
+    var mf=flt==='all'||v===flt||cf===flt;
+    var ms=!q||tx.includes(q);
+    r.classList.toggle('hidden',!(mf&&ms));
+  });
+}
+function sf(f,b){
+  flt=f;
+  document.querySelectorAll('.fbtn').forEach(function(x){x.classList.remove('on')});
+  b.classList.add('on');ft();
+}
+function st(ci){
+  var tb=document.getElementById('tb');
+  var rows=Array.from(tb.querySelectorAll('tr'));
+  var ths=document.querySelectorAll('thead th');
+  if(srt.c===ci){srt.d*=-1}else{srt.c=ci;srt.d=1}
+  ths.forEach(function(h,i){
+    h.classList.toggle('srt',i===ci);
+    var a=h.querySelector('.arr');
+    if(a)a.textContent=i===ci?(srt.d===1?'&#8593;':'&#8595;'):'&#8597;';
+  });
+  rows.sort(function(a,b){
+    var at=a.cells[ci]&&(a.cells[ci].dataset.sort||a.cells[ci].textContent)||'';
+    var bt=b.cells[ci]&&(b.cells[ci].dataset.sort||b.cells[ci].textContent)||'';
+    var an=parseFloat(at.replace(/[^0-9.-]/g,''));
+    var bn=parseFloat(bt.replace(/[^0-9.-]/g,''));
+    if(!isNaN(an)&&!isNaN(bn))return(an-bn)*srt.d;
+    return at.localeCompare(bt)*srt.d;
+  });
+  rows.forEach(function(r){tb.appendChild(r)});
+}
+function copyEmail(id){
+  var el=document.getElementById(id);
+  if(!el)return;
+  navigator.clipboard.writeText(el.textContent).then(function(){
+    var btn=el.closest('.email-block').querySelector('.copy-btn');
+    if(btn){btn.textContent='Copied!';btn.classList.add('copied');
+      setTimeout(function(){btn.textContent='Copy';btn.classList.remove('copied')},2000);}
+  });
+}
+</script>
+</body>
+</html>

@@ -92,9 +92,10 @@ MAX_FILING_AGE_YEARS      = 5             # most recent filing older than this =
 REQUEST_DELAY_SECONDS = 1.0   # seconds between each API call
 
 # -- Output -------------------------------------------------------------------
-OUTPUT_JSON = "results.json"
-OUTPUT_CSV  = "results.csv"
-OUTPUT_HTML = "report.html"
+OUTPUT_JSON     = "results.json"
+OUTPUT_CSV      = "results.csv"
+OUTPUT_HTML     = "report.html"
+OUTPUT_PROGRESS = "progress.json"   # live-updated during the run; read by progress.html
 
 # IRS BMF foundation_code values that definitively indicate a PRIVATE foundation
 # (codes 2, 3, 4). All other codes (10-21) indicate public charity status.
@@ -138,7 +139,44 @@ SIMILARITY_KEYWORDS = [
 # SECTION 1: FOUNDATION DISCOVERY
 # =============================================================================
 
+# =============================================================================
+# PROGRESS TRACKING (writes progress.json; read live by progress.html)
+# =============================================================================
+
+_progress = {
+    "status":         "starting",
+    "phase":          "",
+    "phase_label":    "",
+    "search_done":    0,
+    "search_total":   0,
+    "unique_orgs":    0,
+    "screened":       0,
+    "screened_total": 0,
+    "passed":         0,
+    "flagged":        0,
+    "failed":         0,
+    "xml_checked":    0,
+    "current_action": "Initializing...",
+    "started_at":     datetime.datetime.utcnow().isoformat() + "Z",
+    "updated_at":     "",
+    "report_ready":   False,
+}
+
+def write_progress(**kwargs):
+    """Update progress state and flush to progress.json atomically."""
+    _progress.update(kwargs)
+    _progress["updated_at"] = datetime.datetime.utcnow().isoformat() + "Z"
+    try:
+        tmp = OUTPUT_PROGRESS + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_progress, f)
+        os.replace(tmp, OUTPUT_PROGRESS)
+    except Exception:
+        pass   # never crash the main pipeline for a progress write
+
+
 def api_get(url: str, params: dict = None, timeout: int = 15) -> Optional[dict]:
+
     """
     GET request to ProPublica with rate limiting and error handling.
     Returns parsed JSON dict, or None on any failure. Never raises.
@@ -1481,12 +1519,24 @@ def main():
 
     print()
     print("=" * 60)
-    print("  STEAMery Grant Discovery Tool")
+    print("  STEAMery Grant Discovery Tool v2")
     print("  Brown County, Indiana | Volunteer research project")
     print("=" * 60)
     if args.dry_run:
         print("  [DRY RUN] 1 page per search, no XML. Fast validation mode.")
     print()
+
+    total_combos = (
+        len(STATES_TIER1) + len(STATES_TIER2)
+    ) * len(NTEE_GROUPS) * len(SEARCH_QUERIES)
+
+    write_progress(
+        status="running",
+        phase="discovery",
+        phase_label="Part 1 of 4 — Searching foundations",
+        search_total=total_combos,
+        current_action="Starting foundation discovery...",
+    )
 
     # ── PART 1: Discovery ────────────────────────────────────────────────
     print("PART 1: Foundation Discovery")
@@ -1494,12 +1544,19 @@ def main():
     candidates = collect_all_candidates(dry_run=args.dry_run)
     print(f"\n  Collected {len(candidates)} unique organizations.\n")
 
+    write_progress(
+        phase="screening",
+        phase_label="Part 2 of 4 — Eligibility screening",
+        search_done=total_combos,
+        unique_orgs=len(candidates),
+        screened_total=min(25, len(candidates)) if args.dry_run else len(candidates),
+        current_action=f"Screening {len(candidates)} foundations...",
+    )
+
     # ── PART 2: Screening ────────────────────────────────────────────────
     print("PART 2: Eligibility Screening")
     print("-" * 40)
 
-    # In dry-run mode, cap the number of orgs we fetch detail for so the
-    # test completes in ~30 seconds rather than 20+ minutes.
     DRY_RUN_MAX_ORGS = 25
     candidate_items = list(candidates.items())
     if args.dry_run:
@@ -1512,6 +1569,14 @@ def main():
     for i, (ein, search_org) in enumerate(candidate_items, 1):
         name = search_org.get("name") or str(ein)
         print(f"  [{i}/{len(candidate_items)}] {name}")
+
+        write_progress(
+            screened=i,
+            passed=n_pass,
+            flagged=n_flag,
+            failed=n_fail,
+            current_action=f"Screening [{i}/{len(candidate_items)}]: {name}",
+        )
 
         org_detail = fetch_org_detail(ein)
         if not org_detail:
@@ -1548,11 +1613,23 @@ def main():
             -(r.get("asset_amount") or 0),
         ))
         top_eins = {r["ein"] for r in passing[:args.top_n]}
+        xml_n = 0
+
+        write_progress(
+            phase="grant_history",
+            phase_label=f"Part 3 of 4 — Checking grant history (top {args.top_n})",
+            current_action="Starting IRS XML grant history checks...",
+        )
 
         for r in all_records:
             if r["ein"] not in top_eins or not r.get("org_detail_available"):
                 continue
+            xml_n += 1
             print(f"  Checking: {r.get('name')} (EIN {r['ein']})")
+            write_progress(
+                xml_checked=xml_n,
+                current_action=f"Fetching grant history: {r.get('name')}",
+            )
             org_detail = fetch_org_detail(r["ein"])
             if org_detail:
                 gh = check_grant_history(r["ein"], org_detail)
@@ -1562,7 +1639,6 @@ def main():
                 if sim:
                     print(f"    [MATCH] {sim} similar past grant(s) found!")
 
-                # Compute and store typical grant size estimate
                 est = compute_typical_grant(r)
                 if est and r.get("filing_summary") is not None:
                     r["filing_summary"]["typical_grant_estimate"] = est
@@ -1572,7 +1648,15 @@ def main():
     print("\nPART 4: Generating Output")
     print("-" * 40)
 
-    # Generate email templates for top passing candidates
+    write_progress(
+        phase="output",
+        phase_label="Part 4 of 4 — Writing output files",
+        current_action="Generating report files...",
+        passed=n_pass,
+        flagged=n_flag,
+        failed=n_fail,
+    )
+
     passing_sorted = sorted(
         [r for r in all_records if r.get("verdict") in ("pass", "flag")],
         key=lambda r: (
@@ -1580,13 +1664,24 @@ def main():
             -(r.get("asset_amount") or 0),
         )
     )
-    # Attach email template to each top 10 passing record (stored in the record itself)
     for r in passing_sorted[:10]:
         r["email_template"] = generate_email_template(r)
 
     save_json(all_records, OUTPUT_JSON)
     save_csv(all_records, OUTPUT_CSV)
     save_html(all_records, OUTPUT_HTML)
+
+    write_progress(
+        status="done",
+        phase="done",
+        phase_label="Complete!",
+        current_action="All done. Open report.html to view results.",
+        report_ready=True,
+        screened=len(all_records),
+        passed=n_pass,
+        flagged=n_flag,
+        failed=n_fail,
+    )
 
     print()
     print("=" * 60)
@@ -1609,3 +1704,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

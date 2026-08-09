@@ -1,6 +1,12 @@
-results.json
-report.html
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
+
+# Temp files only
+progress.json
+progress.json.tmp
 .DS_Store
+
+# NOTE: results.json, results.csv, report.html are committed intentionally
+# for GitHub Pages hosting. Run the script then commit + push to update the report.

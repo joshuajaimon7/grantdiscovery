@@ -1,0 +1,40 @@
+name: Refresh Grant Report
+
+on:
+  # Run automatically on the 1st of every month at 9am UTC
+  schedule:
+    - cron: '0 9 1 * *'
+
+  # Also allow manual trigger from the GitHub Actions tab
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to commit results back to the repo
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests lxml
+
+      - name: Run grant discovery tool
+        run: python steamery_grant_finder.py --skip-xml
+        # --skip-xml makes it faster for automated runs (~15 min instead of 40)
+        # Remove --skip-xml if you want full grant history + email templates
+
+      - name: Commit updated report
+        run: |
+          git config user.name  "STEAMery Grant Bot"
+          git config user.email "bot@github-actions"
+          git add report.html results.json results.csv
+          git diff --staged --quiet || git commit -m "Auto-refresh: $(date +'%B %Y') grant report"
+          git push
