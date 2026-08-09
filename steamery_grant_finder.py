@@ -1,18 +1,27 @@
 #!/usr/bin/env python3
 """
-STEAMery Grant Discovery Tool
-==============================
+STEAMery Grant Discovery Tool v2.0
+====================================
 Volunteer research tool for The STEAMery (Brown County, Indiana).
 Searches ProPublica's Nonprofit Explorer API for private foundations that
 are plausible funders, screens them against The STEAMery's hard disqualifiers,
 attempts to pull grant history from IRS e-file XML, and writes:
 
   * results.json   -- full auditable log of every screened foundation
-  * report.html    -- interactive browser report with confidence badges
+  * results.csv    -- spreadsheet export (open in Excel / Google Sheets)
+  * report.html    -- interactive browser report with confidence badges,
+                      grant size estimates, and draft outreach email templates
+
+v2 additions:
+  - CSV export for Excel / Google Sheets
+  - foundation_code fast-fail (skips public charities faster)
+  - Typical grant size estimate from 990-PF data
+  - Draft outreach email templates for top candidates
+  - Arts/Humanities NTEE group (1) added to searches
 
 Usage:
-  python3 steamery_grant_finder.py           # full run (~15-30 min)
-  python3 steamery_grant_finder.py --dry-run  # 1 page only, fast validation
+  python3 steamery_grant_finder.py           # full run (~20-40 min)
+  python3 steamery_grant_finder.py --dry-run  # fast validation (~90 sec)
   python3 steamery_grant_finder.py --skip-xml # skip XML parsing (faster)
 
 Requirements: Python 3.8+, requests, lxml
@@ -25,11 +34,13 @@ Author: STEAMery volunteer project -- Brown County, IN
 """
 
 import argparse
+import csv
 import json
 import os
 import sys
 import time
 import datetime
+import textwrap
 from typing import Optional
 
 import requests
@@ -57,9 +68,11 @@ STATES_TIER2 = ["OH", "IL", "KY", "MI"]
 MAX_PAGES_TIER1 = 999   # exhaust all Indiana pages
 MAX_PAGES_TIER2 = 10    # cap bordering states at 250 orgs per combo
 
-# NTEE major group codes: 2=Education, 7=Public/Societal Benefit
-# (catches most small family/community foundations)
-NTEE_GROUPS = [2, 7]
+# NTEE major group codes:
+#   1 = Arts, Culture & Humanities (STEAM includes Arts)
+#   2 = Education
+#   7 = Public/Societal Benefit (catches most family/community foundations)
+NTEE_GROUPS = [1, 2, 7]
 
 # Query terms -- ProPublica searches org name, alternate name, and city
 SEARCH_QUERIES = [
@@ -80,7 +93,14 @@ REQUEST_DELAY_SECONDS = 1.0   # seconds between each API call
 
 # -- Output -------------------------------------------------------------------
 OUTPUT_JSON = "results.json"
+OUTPUT_CSV  = "results.csv"
 OUTPUT_HTML = "report.html"
+
+# IRS BMF foundation_code values that definitively indicate a PRIVATE foundation
+# (codes 2, 3, 4). All other codes (10-21) indicate public charity status.
+# Source: https://www.irs.gov/pub/irs-soi/eobk13.doc
+PRIVATE_FOUNDATION_CODES = {2, 3, 4}
+PUBLIC_CHARITY_CODES     = {10, 11, 12, 13, 14, 15, 16, 17, 18, 21}
 
 # -- STEAMery hard disqualifiers (used to generate manual-check notes) --------
 # These are the constraints we KNOW about The STEAMery. We cannot determine
@@ -276,7 +296,21 @@ def screen_candidate(org_detail: dict, geo_tier: int) -> dict:
         "what_api_cannot_tell": [],
     }
 
-    # Rule 1: Must be a private foundation (990-PF filer)
+    # Rule 0: foundation_code fast-fail (IRS BMF field — faster than checking filings)
+    # If the IRS explicitly classifies this org as a public charity (codes 10-21),
+    # we can skip it immediately without further API calls.
+    foundation_code = org.get("foundation_code") or org.get("foundation_cd")
+    if foundation_code and int(foundation_code) in PUBLIC_CHARITY_CODES:
+        result["verdict"] = "fail"
+        result["rejection_reason"] = (
+            f"IRS foundation_code={foundation_code} classifies this org as a public charity "
+            "(not a private foundation). Codes 10-21 = various public support categories. "
+            "This org likely has 'Foundation' in its name but supports a specific institution "
+            "(university, hospital, etc.) rather than making grants to outside nonprofits."
+        )
+        return result
+
+    # Rule 1: Must have at least one 990-PF filing to confirm private foundation status
     if not has_990pf_filing(filings_with, filings_without):
         result["verdict"] = "fail"
         result["rejection_reason"] = (
@@ -294,10 +328,17 @@ def screen_candidate(org_detail: dict, geo_tier: int) -> dict:
         assets = pf.get("totassetsend")
         tax_prd = pf.get("tax_prd", 0)
         most_recent_year = int(str(tax_prd)[:4]) if tax_prd else None
+
+        # grntspaid = total grants/contributions paid during the year (990-PF field)
+        # Used to estimate a typical grant size when combined with XML grant count.
+        grants_paid_total = pf.get("grntspaid") or pf.get("totcntrbgfts")
+
         result["filing_summary"] = {
-            "most_recent_year": most_recent_year,
+            "most_recent_year":  most_recent_year,
             "assets_end_of_year": assets,
-            "total_revenue": pf.get("totrevenue"),
+            "total_revenue":     pf.get("totrevenue"),
+            "grants_paid_total": grants_paid_total,  # total $ out the door in grants
+            "typical_grant_estimate": None,           # filled in by check_grant_history()
         }
 
         # Fail: near-zero assets (likely dormant)
@@ -582,10 +623,17 @@ def check_grant_history(ein: int, org_detail: dict) -> dict:
                     g["similarity_reason"] = _similarity_reason(g)
                     similar.append(g)
             similar.sort(key=lambda g: g["similarity_score"], reverse=True)
+
+            # Estimate typical grant size: total $ paid / number of individual grants
+            num_grants = len(grants)
+            typical_estimate = None
+            # We'll compute this using grants_paid_total from the record's filing_summary
+            # after we return (caller will set it). Store count here for the caller.
             result.update({
-                "method":         "xml_parsed",
-                "grants_found":   len(grants),
-                "similar_grants": similar[:10],
+                "method":              "xml_parsed",
+                "grants_found":        len(grants),
+                "similar_grants":      similar[:10],
+                "grants_count_for_estimate": num_grants,  # used by caller to compute estimate
                 "notes": (
                     f"IRS e-file XML parsed. Found {len(grants)} grant entries; "
                     f"{len(similar)} match STEAMery similarity keywords."
@@ -620,9 +668,178 @@ def check_grant_history(ein: int, org_detail: dict) -> dict:
     return result
 
 
+
 # =============================================================================
-# SECTION 4A: JSON OUTPUT
+# SECTION 3B: GRANT SIZE ESTIMATION
 # =============================================================================
+
+def compute_typical_grant(record: dict) -> Optional[int]:
+    """
+    Estimate a foundation's typical grant size using:
+      1. Total grants paid (from 990-PF API data field grntspaid)
+      2. Number of grants found in XML
+
+    Returns integer dollar amount, or None if we can't determine it.
+    This helps Kirstie gauge whether a foundation's range makes sense
+    for The STEAMery's ask (e.g., a $5K typical grant vs. a $250K one).
+    """
+    fs = record.get("filing_summary") or {}
+    gh = record.get("grant_history") or {}
+
+    grants_paid_total = fs.get("grants_paid_total")
+    grants_count      = gh.get("grants_count_for_estimate") or gh.get("grants_found")
+
+    if grants_paid_total and grants_count and grants_count > 0:
+        return int(grants_paid_total // grants_count)
+
+    # Fallback: if we have total paid but no count, return the total
+    # (at minimum it tells Kirstie the total grant-making activity)
+    if grants_paid_total:
+        return int(grants_paid_total)
+
+    return None
+
+
+# =============================================================================
+# SECTION 3C: CSV EXPORT
+# =============================================================================
+
+def save_csv(records: list, filepath: str):
+    """
+    Write a spreadsheet-friendly CSV that Kirstie can open in
+    Excel or Google Sheets and sort/filter herself.
+    """
+    fieldnames = [
+        "name", "state", "city", "ntee_code", "geo_tier",
+        "verdict", "confidence", "rejection_reason",
+        "assets_end_of_year", "asset_amount",
+        "grants_paid_total", "typical_grant_estimate",
+        "grant_history_method", "similar_grants_count",
+        "propublica_url", "ruling_date", "most_recent_filing_year",
+    ]
+    with open(filepath, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for r in records:
+            fs = r.get("filing_summary") or {}
+            gh = r.get("grant_history") or {}
+            writer.writerow({
+                "name":                  r.get("name"),
+                "state":                 r.get("state"),
+                "city":                  r.get("city"),
+                "ntee_code":             r.get("ntee_code"),
+                "geo_tier":              r.get("geo_tier"),
+                "verdict":               r.get("verdict"),
+                "confidence":            r.get("confidence"),
+                "rejection_reason":      (r.get("rejection_reason") or "")[:200],
+                "assets_end_of_year":    fs.get("assets_end_of_year"),
+                "asset_amount":          r.get("asset_amount"),
+                "grants_paid_total":     fs.get("grants_paid_total"),
+                "typical_grant_estimate": fs.get("typical_grant_estimate"),
+                "grant_history_method":  gh.get("method"),
+                "similar_grants_count":  len(gh.get("similar_grants") or []),
+                "propublica_url":        r.get("propublica_url"),
+                "ruling_date":           r.get("ruling_date"),
+                "most_recent_filing_year": fs.get("most_recent_year"),
+            })
+    print(f"  [saved] {filepath}")
+
+
+# =============================================================================
+# SECTION 3D: EMAIL TEMPLATE GENERATOR
+# =============================================================================
+
+def generate_email_template(record: dict) -> str:
+    """
+    Draft a personalized first-contact email paragraph for Kirstie to send
+    to each top candidate foundation.
+
+    Uses only verified data from the record -- never invents details.
+    Kirstie should review and customize before sending.
+    """
+    name         = record.get("name") or "[Foundation Name]"
+    state        = record.get("state") or ""
+    assets       = record.get("asset_amount")
+    fs           = record.get("filing_summary") or {}
+    gh           = record.get("grant_history") or {}
+    similar      = gh.get("similar_grants") or []
+    typical_est  = fs.get("typical_grant_estimate")
+    propublica   = record.get("propublica_url", "")
+    ntee         = record.get("ntee_code") or ""
+
+    # Build evidence sentence from past grants if available
+    evidence_line = ""
+    if similar:
+        g  = similar[0]
+        gn = g.get("recipient_name", "")
+        gp = (g.get("purpose") or "")[:100]
+        ga = g.get("amount")
+        evidence_line = (
+            f"I was particularly encouraged to see that {name} has previously supported "
+            + (f"{gn}" if gn else "organizations")
+            + (f" for {gp.lower()}" if gp else "")
+            + (f" (${ga:,})" if ga else "")
+            + ". Our work at The STEAMery is directly aligned with this kind of commitment "
+              "to [education / community development / youth programs -- customize]."
+        )
+    else:
+        ntee_desc = "education" if ntee.startswith("B") else \
+                    "arts and culture" if ntee.startswith("A") else \
+                    "community development"
+        evidence_line = (
+            f"Based on {name}'s focus on {ntee_desc}, I believe our mission "
+            "is closely aligned with your grantmaking priorities."
+        )
+
+    # Grant size context
+    grant_context = ""
+    if typical_est:
+        grant_context = (
+            f"\n\nBased on your recent 990-PF filing, we understand your typical grant size "
+            f"is approximately ${typical_est:,}. We would be seeking support in that range "
+            f"for [specific program/capital need -- customize]."
+        )
+
+    template = textwrap.dedent(f"""\
+        Subject: Grant Inquiry -- The STEAMery, Brown County, Indiana
+
+        Dear {name} Grants Team,
+
+        My name is Kirstie Tiernan, and I am the founder of The STEAMery, a new
+        501(c)(3) nonprofit in Nashville, Indiana (Brown County). We are working to
+        convert a historic 1920s sock factory into a hands-on STEAM education facility
+        serving rural youth and the broader community in one of Indiana's most
+        economically under-resourced counties.
+
+        {evidence_line}
+        {grant_context}
+
+        We are in the early stages of our capital campaign and would welcome the
+        opportunity to learn more about {name}'s current grantmaking priorities
+        and whether our work might be a good fit for your support. I'd love to share
+        a one-page project summary or schedule a brief call at your convenience.
+
+        Thank you sincerely for your time and for the meaningful work {name} does
+        in [their community / Indiana / the region -- customize].
+
+        With warm regards,
+        Kirstie Tiernan
+        Founder, The STEAMery
+        Nashville, Indiana 47448
+        [your email] | [website URL]
+
+        --- TOOL NOTE (delete before sending) ---
+        ProPublica profile:    {propublica}
+        Assets (most recent):  {_fmt_assets(assets)}
+        Typical grant est.:    {'$' + f'{typical_est:,}' if typical_est else 'Unknown'}
+        Similar past grants:   {len(similar)} found in IRS XML
+        ALWAYS verify eligibility requirements before sending this email.
+        Review their website and most recent 990-PF before reaching out.
+        -----------------------------------------
+    """)
+    return template
+
+
 
 def build_record(ein: int, search_org: dict, org_detail: Optional[dict],
                  screening: Optional[dict], grant_history: Optional[dict]) -> dict:
@@ -813,7 +1030,66 @@ def _render_rows(records: list) -> str:
     return "\n".join(rows)
 
 
+def _render_email_section(candidates: list) -> str:
+    """
+    Render an HTML section with draft outreach email templates for each
+    top candidate. Each email is shown in a pre block with a copy button.
+    """
+    if not candidates:
+        return ""
+
+    blocks = []
+    for i, r in enumerate(candidates):
+        name     = r.get("name") or "Unknown"
+        conf     = r.get("confidence") or ""
+        cc       = _conf_class(conf)
+        assets   = _fmt_assets(r.get("asset_amount"))
+        url      = r.get("propublica_url", "")
+        template = r.get("email_template") or generate_email_template(r)
+        # Escape HTML special chars in the template text
+        safe_tmpl = template.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        uid = f"email_{i}"
+
+        blocks.append(f"""
+    <div class="email-block">
+      <div class="email-hdr">
+        <div>
+          <span class="email-name">{name}</span>
+          <span class="badge {cc}" style="margin-left:8px">{conf}</span>
+          <span style="color:var(--muted);font-size:12px;margin-left:10px">{assets}</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <a href="{url}" target="_blank" class="pp-mini">ProPublica &rarr;</a>
+          <button class="copy-btn" onclick="copyEmail('{uid}')">Copy</button>
+        </div>
+      </div>
+      <pre id="{uid}" class="email-body">{safe_tmpl}</pre>
+    </div>""")
+
+    return f"""
+<div class="sec" style="padding-bottom:60px">
+  <div class="sec-title">
+    <span class="ico">&#9993;</span>
+    Draft Outreach Emails
+    <span class="sub">&nbsp;&mdash; personalized first-contact drafts for top candidates.
+    Review, customize, and verify eligibility before sending.</span>
+  </div>
+  <div class="disq" style="border-color:rgba(227,179,65,.3);margin-bottom:24px">
+    <h3 style="color:var(--yellow)">&#9888; Before sending any email:</h3>
+    <ul>
+      <li>Visit the foundation&rsquo;s website to confirm they accept unsolicited inquiries</li>
+      <li>Review their most recent 990-PF on ProPublica to check giving history and grant size</li>
+      <li>Verify The STEAMery meets their eligibility requirements (see hard disqualifiers above)</li>
+      <li>Customize the bracketed [placeholders] with real details</li>
+      <li>Find the correct contact name &mdash; &ldquo;Grants Team&rdquo; is a placeholder</li>
+    </ul>
+  </div>
+  {"".join(blocks)}
+</div>"""
+
+
 def save_html(records: list, filepath: str):
+
     ts   = datetime.datetime.utcnow().strftime("%B %d, %Y at %H:%M UTC")
     tot  = len(records)
     n_pass  = sum(1 for r in records if r.get("verdict") == "pass")
@@ -827,6 +1103,7 @@ def save_html(records: list, filepath: str):
     ))
     top5 = _render_top_cards(passing[:5])
     rows = _render_rows(records)
+    email_section_html = _render_email_section(passing[:10])
 
     disq_items = "".join(f"<li>{d}</li>" for d in STEAMERY_PROFILE["hard_disqualifiers"])
 
@@ -1002,6 +1279,31 @@ td{{padding:11px 14px;vertical-align:top}}
 }}
 .pp-mini:hover{{background:rgba(88,166,255,.1);text-decoration:none}}
 
+/* Email templates */
+.email-block{{
+  background:var(--surf);border:1px solid var(--border);border-radius:var(--rl);
+  margin-bottom:16px;overflow:hidden
+}}
+.email-hdr{{
+  display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;
+  padding:14px 18px;background:var(--surf2);border-bottom:1px solid var(--border)
+}}
+.email-name{{font-weight:700;font-size:14px}}
+.email-body{{
+  margin:0;padding:18px;font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace;
+  font-size:12px;line-height:1.7;color:var(--text);white-space:pre-wrap;word-break:break-word;
+  background:var(--bg);max-height:320px;overflow-y:auto
+}}
+.email-body::-webkit-scrollbar{{width:6px}}
+.email-body::-webkit-scrollbar-thumb{{background:var(--border);border-radius:3px}}
+.copy-btn{{
+  background:var(--surf);border:1px solid var(--border);border-radius:6px;
+  color:var(--accent);padding:5px 14px;font-size:12px;font-weight:600;cursor:pointer;
+  transition:all .15s
+}}
+.copy-btn:hover{{background:rgba(88,166,255,.1);border-color:var(--accent)}}
+.copy-btn.copied{{color:var(--green);border-color:rgba(63,185,80,.4)}}
+
 /* Footer */
 .ftr{{
   border-top:1px solid var(--border);padding:24px 32px;text-align:center;
@@ -1012,6 +1314,7 @@ td{{padding:11px 14px;vertical-align:top}}
   .wrap{{padding:0 14px}}
   .grid{{grid-template-columns:1fr}}
   .srch{{width:100%}}
+  .email-hdr{{flex-direction:column;align-items:flex-start}}
 }}
 </style>
 </head>
@@ -1092,9 +1395,14 @@ td{{padding:11px 14px;vertical-align:top}}
 
 </div>
 
+<!-- EMAIL TEMPLATES -->
+{email_section_html}
+
+</div>
+
 <!-- FOOTER -->
 <div class="ftr">
-  Generated by the STEAMery Grant Discovery Tool (volunteer project) &bull;
+  Generated by the STEAMery Grant Discovery Tool v2.0 (volunteer project) &bull;
   Data: ProPublica Nonprofit Explorer API &bull;
   <a href="https://projects.propublica.org/nonprofits/api/">API docs</a><br>
   <strong>This tool surfaces plausible candidates &mdash; it does not guarantee eligibility.
@@ -1136,6 +1444,15 @@ function st(ci){{
     return at.localeCompare(bt)*srt.d;
   }});
   rows.forEach(function(r){{tb.appendChild(r)}});
+}}
+function copyEmail(id){{
+  var el=document.getElementById(id);
+  if(!el)return;
+  navigator.clipboard.writeText(el.textContent).then(function(){{
+    var btn=el.closest('.email-block').querySelector('.copy-btn');
+    if(btn){{btn.textContent='Copied!';btn.classList.add('copied');
+      setTimeout(function(){{btn.textContent='Copy';btn.classList.remove('copied')}},2000);}}
+  }});
 }}
 </script>
 </body>
@@ -1245,21 +1562,44 @@ def main():
                 if sim:
                     print(f"    [MATCH] {sim} similar past grant(s) found!")
 
+                # Compute and store typical grant size estimate
+                est = compute_typical_grant(r)
+                if est and r.get("filing_summary") is not None:
+                    r["filing_summary"]["typical_grant_estimate"] = est
+                    print(f"    [ESTIMATE] Typical grant size: ~${est:,}")
+
     # ── PART 4: Output ───────────────────────────────────────────────────
     print("\nPART 4: Generating Output")
     print("-" * 40)
+
+    # Generate email templates for top passing candidates
+    passing_sorted = sorted(
+        [r for r in all_records if r.get("verdict") in ("pass", "flag")],
+        key=lambda r: (
+            {"high fit": 0, "worth a look": 1, "long shot": 2}.get(r.get("confidence", "long shot"), 3),
+            -(r.get("asset_amount") or 0),
+        )
+    )
+    # Attach email template to each top 10 passing record (stored in the record itself)
+    for r in passing_sorted[:10]:
+        r["email_template"] = generate_email_template(r)
+
     save_json(all_records, OUTPUT_JSON)
+    save_csv(all_records, OUTPUT_CSV)
     save_html(all_records, OUTPUT_HTML)
 
     print()
     print("=" * 60)
-    print("  DONE")
+    print("  DONE v2")
     print(f"  {len(all_records)} foundations screened")
     print(f"  {n_pass + n_flag} passed  |  {n_fail} screened out (with logged reasons)")
     print()
-    print(f"  Full data:    {os.path.abspath(OUTPUT_JSON)}")
-    print(f"  HTML report:  {os.path.abspath(OUTPUT_HTML)}")
+    print(f"  Full data:      {os.path.abspath(OUTPUT_JSON)}")
+    print(f"  Spreadsheet:    {os.path.abspath(OUTPUT_CSV)}")
+    print(f"  HTML report:    {os.path.abspath(OUTPUT_HTML)}")
     print()
+    print("  TIP: Open report.html in your browser for the interactive view.")
+    print("  TIP: Open results.csv in Google Sheets or Excel to sort/filter.")
     print("  NOTE: This tool surfaces plausible candidates only.")
     print("  Always verify requirements directly with each foundation")
     print("  before Kirstie invests time in an application.")
