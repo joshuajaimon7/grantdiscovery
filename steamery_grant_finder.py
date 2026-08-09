@@ -367,9 +367,10 @@ def screen_candidate(org_detail: dict, geo_tier: int) -> dict:
         tax_prd = pf.get("tax_prd", 0)
         most_recent_year = int(str(tax_prd)[:4]) if tax_prd else None
 
-        # grntspaid = total grants/contributions paid during the year (990-PF field)
-        # Used to estimate a typical grant size when combined with XML grant count.
-        grants_paid_total = pf.get("grntspaid") or pf.get("totcntrbgfts")
+        # grntspaid = total grants paid during the year (IRS 990-PF Part I line 25)
+        # NOTE: Do NOT use totcntrbgfts as a fallback -- that field is
+        # "total contributions received" (revenue), the exact opposite of grants paid.
+        grants_paid_total = pf.get("grntspaid")
 
         result["filing_summary"] = {
             "most_recent_year":  most_recent_year,
@@ -388,6 +389,68 @@ def screen_candidate(org_detail: dict, geo_tier: int) -> dict:
             )
             return result
 
+        # Fail: grants_paid = $0 across all available structured filings
+        # A private operating foundation runs its own programs (museum, library, etc.)
+        # and does NOT award grants to outside nonprofits like The STEAMery.
+        # This is a hard disqualifier. We require >= 2 structured filings to be sure
+        # this isn't just a one-year gap.
+        # IMPORTANT: only check `grntspaid` -- never `totcntrbgfts` which is revenue.
+        all_pf_filings = [f for f in (filings_with or []) if f.get("formtype") == 2]
+        if len(all_pf_filings) >= 2:
+            years_with_grants = [
+                f for f in all_pf_filings
+                if (f.get("grntspaid") or 0) > 0
+            ]
+            if not years_with_grants:
+                result["verdict"] = "fail"
+                result["rejection_reason"] = (
+                    f"Zero grants paid (grntspaid=$0) in all {len(all_pf_filings)} "
+                    "structured 990-PF filings. This is a private OPERATING foundation "
+                    "-- it runs its own programs rather than awarding grants to other "
+                    "nonprofits. The STEAMery cannot apply to them."
+                )
+                return result
+
+        # Fail: NTEE codes that indicate scholarship-only or individual-grant funders
+        # B82 = Scholarships, B84 = Alumni associations -- these give to INDIVIDUALS,
+        # not to nonprofits. STEAMery cannot receive a grant from them.
+        ntee = org.get("ntee_code") or ""
+        if ntee[:3].upper() in ("B82", "B84", "B83"):
+            result["verdict"] = "fail"
+            result["rejection_reason"] = (
+                f"NTEE code {ntee} indicates a scholarship/alumni foundation that funds "
+                "individuals, not nonprofits. The STEAMery cannot apply."
+            )
+            return result
+
+        # Flag: operating-type NTEE codes common in foundations that run programs,
+        # not grantmakers. These often have 'Foundation' in their name but are
+        # operational nonprofits that support a specific institution.
+        OPERATING_NTEE_FLAGS = {
+            "A50": "Museums",
+            "A40": "Libraries",
+            "A60": "Performing Arts",
+            "A80": "Historical Societies",
+            "C60": "Environmental Education (likely operating)",
+        }
+        ntee3 = ntee[:3].upper()
+        if ntee3 in OPERATING_NTEE_FLAGS:
+            result["flags"].append(
+                f"NTEE {ntee} = {OPERATING_NTEE_FLAGS[ntee3]}: many foundations with this "
+                "code operate their own facility rather than making external grants. "
+                "Verify they award grants to outside nonprofits before applying."
+            )
+
+        # Flag: corporate/company-sponsored foundation
+        # NTEE T21 = company-sponsored foundations. These typically fund communities
+        # where the parent company has operations. Brown County has no major corporate HQs.
+        if ntee[:3].upper() == "T21":
+            result["flags"].append(
+                "NTEE T21 = Company-sponsored foundation. These typically fund only "
+                "communities where the parent company has significant operations. "
+                "Brown County has no major corporate headquarters -- verify geographic focus."
+            )
+
         # Flag: very large institutional funder
         if assets is not None and assets > FLAG_LARGE_ASSETS_DOLLARS:
             result["flags"].append(
@@ -403,6 +466,7 @@ def screen_candidate(org_detail: dict, geo_tier: int) -> dict:
                 f"POTENTIALLY DORMANT: Most recent structured 990-PF is from {most_recent_year} "
                 f"({current_year - most_recent_year} years ago). Verify foundation is still active."
             )
+
     else:
         # Has 990-PF but only PDFs -- cannot assess assets
         result["filing_summary"] = {
@@ -429,10 +493,16 @@ def screen_candidate(org_detail: dict, geo_tier: int) -> dict:
         "(The STEAMery is pre-revenue with no paid staff)",
 
         "Whether this foundation accepts unsolicited applications "
-        "(many private foundations only fund at board discretion -- check their website)",
+        "(many private foundations only fund at board discretion -- check their website first)",
 
         "Whether this foundation funds capital campaigns for brand-new nonprofits "
-        "(vs. operating support or established program grants)",
+        "(vs. operating support or established program grants -- check their 990-PF Part XV)",
+
+        "Whether their minimum grant size is appropriate for STEAMery's current stage "
+        "(some large foundations only consider requests >= $100K or >= $500K)",
+
+        "Whether this foundation has a geographic restriction "
+        "(some Indiana-based foundations only fund specific counties or cities)",
     ]
 
     # Compute confidence label
@@ -456,37 +526,72 @@ def _compute_confidence(geo_tier, ntee_code, assets, flags, most_recent_year) ->
     Score a candidate and return "high fit" | "worth a look" | "long shot".
 
     Scoring:
-      Geography:    IN=3pts, bordering=1pt
-      NTEE cause:   B/T=3pts (education/philanthropy), S/W=2pts (community), other=1pt
-      Asset range:  $250K-$50M=2pts, $50M-$500M=1pt, else=0pt
-      Recency:      filing <=2yr old=1pt
-      Large funder flag: -2pts
-      Dormant flag:      -2pts
+      Geography:    IN Tier 1 = 3pts, bordering state Tier 2 = 1pt
+      NTEE cause:   T20/T30 (philanthropy/grantmaking) = 3pts
+                    B (education, excl. B82/B84 already failed) = 3pts
+                    A1x (arts alliances) = 2pts
+                    S/W (community/human svc) = 2pts
+                    R/C (environment/civic) = 1pt
+                    other = 1pt
+      Asset range:  $250K–$10M  = 3pts (right-sized for STEAMery's early asks)
+                    $10M–$50M   = 2pts
+                    $50M–$500M  = 1pt
+                    <$250K or >$500M = 0pt
+      Recency:      filing <= 2yr old = 1pt
+      Penalties:    LARGE FUNDER flag = -2pts
+                    DORMANT flag      = -2pts
+                    OPERATING NTEE flag = -1pt
+                    CORPORATE flag    = -1pt
+
+    Thresholds:  >= 7 = "high fit", >= 4 = "worth a look", < 4 = "long shot"
     """
     score = 3 if geo_tier == 1 else 1
 
-    prefix = (ntee_code or "")[:1].upper()
-    if prefix in ("B", "T"):
+    ntee = (ntee_code or "").upper()
+    prefix = ntee[:1]
+    ntee3  = ntee[:3]
+
+    # Philanthropy / grantmaking infrastructure — closest match to "a foundation that funds others"
+    if prefix == "T" and ntee3 in ("T20", "T21", "T30", "T31", "T50", "T70", "T99", "T00"):
         score += 3
-    elif prefix in ("S", "W", "R", "C"):
+    # Education (excl. B82 scholarships, B84 alumni — already failed above)
+    elif prefix == "B" and ntee3 not in ("B82", "B83", "B84"):
+        score += 3
+    # Arts alliances / arts funders (not operating arts orgs)
+    elif ntee3 in ("A01", "A11", "A12", "A19"):
         score += 2
+    # Community / human services
+    elif prefix in ("S", "W"):
+        score += 2
+    # Environmental / civic / rural
+    elif prefix in ("R", "C", "Q"):
+        score += 1
     else:
         score += 1
 
+    # Asset range — calibrated to STEAMery's realistic early ask ($5K–$50K)
     if assets is not None:
-        if 250_000 <= assets <= 50_000_000:
+        if 250_000 <= assets <= 10_000_000:
+            score += 3   # right-sized: can fund small grants, not so big they ignore new orgs
+        elif 10_000_000 < assets <= 50_000_000:
             score += 2
         elif 50_000_000 < assets <= FLAG_LARGE_ASSETS_DOLLARS:
             score += 1
+        # else: < $250K or > $500M = 0 pts
 
     current_year = datetime.datetime.now().year
     if most_recent_year and (current_year - most_recent_year) <= 2:
         score += 1
 
+    # Penalties
     if any("LARGE FUNDER" in f for f in flags):
         score -= 2
     if any("DORMANT" in f for f in flags):
         score -= 2
+    if any("NTEE" in f and ("Museum" in f or "Librar" in f or "Historical" in f or "Performing" in f) for f in flags):
+        score -= 1   # operating-type NTEE
+    if any("Company-sponsored" in f for f in flags):
+        score -= 1
 
     if score >= 7:
         return "high fit"
