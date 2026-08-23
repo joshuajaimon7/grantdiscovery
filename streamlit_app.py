@@ -10,12 +10,37 @@ Deploy free: share.streamlit.io → connect GitHub repo → done.
 
 import streamlit as st
 import datetime
+import json
 import os
 import sys
 
 # Import all core logic from the existing script — zero duplication
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import steamery_grant_finder as gf
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DISK PERSISTENCE  — survives WebSocket reconnects on Streamlit Cloud
+# ─────────────────────────────────────────────────────────────────────────────
+_SESSION_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".streamlit_session.json")
+
+def _save_session(records, ts, n_pass, n_flag, n_fail):
+    """Write results to disk so they survive a WebSocket reconnect."""
+    try:
+        with open(_SESSION_CACHE, "w") as f:
+            json.dump({"records": records, "ts": ts,
+                       "n_pass": n_pass, "n_flag": n_flag, "n_fail": n_fail}, f)
+    except Exception:
+        pass
+
+def _load_session():
+    """Load results from disk if session_state is empty (after reconnect)."""
+    try:
+        if os.path.exists(_SESSION_CACHE):
+            with open(_SESSION_CACHE) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -170,6 +195,25 @@ if "n_flag" not in st.session_state:
 if "n_fail" not in st.session_state:
     st.session_state.n_fail = 0
 
+# Restore from disk if session was lost due to WebSocket reconnect
+if st.session_state.results is None:
+    cached = _load_session()
+    if cached:
+        st.session_state.results = cached["records"]
+        st.session_state.run_ts  = cached["ts"]
+        st.session_state.n_pass  = cached["n_pass"]
+        st.session_state.n_flag  = cached["n_flag"]
+        st.session_state.n_fail  = cached["n_fail"]
+
+# Show banner at the top if results already exist
+if st.session_state.results:
+    n_ready = st.session_state.n_pass + st.session_state.n_flag
+    st.success(
+        f"📊 Results from last run are ready below — **{n_ready} foundations passed**. "
+        "Scroll down to see them ↓",
+        icon="✅",
+    )
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MAIN RUN LOGIC
@@ -322,12 +366,17 @@ if run_clicked:
     gf.save_csv(all_records, gf.OUTPUT_CSV)
     gf.save_html(all_records, gf.OUTPUT_HTML)
 
-    # Persist to session
+    run_ts = datetime.datetime.utcnow().strftime("%B %d, %Y at %H:%M UTC")
+
+    # Persist to session state
     st.session_state.results = all_records
-    st.session_state.run_ts  = datetime.datetime.utcnow().strftime("%B %d, %Y at %H:%M UTC")
+    st.session_state.run_ts  = run_ts
     st.session_state.n_pass  = n_pass
     st.session_state.n_flag  = n_flag
     st.session_state.n_fail  = n_fail
+
+    # Also save to disk — survives WebSocket reconnects on Streamlit Cloud
+    _save_session(all_records, run_ts, n_pass, n_flag, n_fail)
 
     # Clean up progress UI
     phase_label.empty(); metrics_row.empty()
@@ -338,6 +387,8 @@ if run_clicked:
         f"✅ Complete! Screened **{len(all_records):,}** foundations — "
         f"**{n_pass + n_flag}** passed · {n_fail:,} screened out."
     )
+    # Force a rerun so the results section renders cleanly below
+    st.rerun()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -351,6 +402,9 @@ if st.session_state.results:
     n_fail  = st.session_state.n_fail
     n_hf    = sum(1 for r in records if r.get("confidence") == "high fit")
 
+    # Anchor so browser can jump here
+    st.markdown('<a name="results"></a>', unsafe_allow_html=True)
+    st.markdown("## 📊 Results")
     st.caption(f"📅 Last run: {ts}")
 
     # ── Summary metrics ──────────────────────────────────────────────────
