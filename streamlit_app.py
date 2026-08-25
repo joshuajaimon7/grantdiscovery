@@ -13,10 +13,35 @@ import datetime
 import json
 import os
 import sys
+import time
+import requests as _req
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import all core logic from the existing script — zero duplication
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import steamery_grant_finder as gf
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FAST PARALLEL FETCH  — replaces the 1-by-1 sequential API call loop
+# ─────────────────────────────────────────────────────────────────────────────
+_HEADERS = {"User-Agent": "STEAMery-GrantFinder/1.0 (volunteer nonprofit research)"}
+
+def _fast_fetch(ein: str) -> tuple:
+    """
+    Fetch a single org detail from ProPublica with a short 0.2s polite delay.
+    Returns (ein, org_detail_dict_or_None).
+    Used in ThreadPoolExecutor for parallel screening.
+    """
+    time.sleep(0.2)   # polite but fast — 10x faster than the 1.0s global
+    try:
+        url = f"{gf.API_BASE}/organizations/{ein}.json"
+        resp = _req.get(url, timeout=12, headers=_HEADERS)
+        if resp.status_code == 200:
+            data = resp.json()
+            return ein, data.get("organization") or data
+    except Exception:
+        pass
+    return ein, None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DISK PERSISTENCE  — survives WebSocket reconnects on Streamlit Cloud
@@ -275,16 +300,54 @@ if run_clicked:
                     c3.metric("✅ Passed",             "—")
                     c4.metric("📡 Combos Done",        f"{combo_done}/{total_combos}")
 
-    # ── PHASE 2: Screening ──────────────────────────────────────────────
-    phase_label.markdown("### 🔬 Phase 2 of 4 — Eligibility Screening")
+
+    # ── PHASE 2: Screening (parallel fetch + sequential screen) ────────
+    phase_label.markdown("### 🔬 Phase 2 of 4 — Fetching + Screening (parallel)")
     bar_search.progress(1.0, text="Search complete ✓")
     candidate_items = list(candidates.items())
-    total_screen    = len(candidate_items)
+    total_screen = len(candidate_items)
+
+    # Step 2a: Parallel fetch all org_details (10 workers, 0.2s delay each)
+    # Sequential 1-by-1 at 1s/call = ~1.75 hrs for 6,304 orgs.
+    # Parallel 10 workers at 0.2s/call = ~4 min for the same 6,304 orgs.
+    action_txt.caption(
+        f"⚡ Fetching {total_screen:,} foundation details in parallel (10 workers) — ~4 min..."
+    )
+    bar_screen.progress(0.0, text=f"Fetching: 0 / {total_screen:,}")
+
+    org_detail_cache = {}  # ein → org_detail dict (or None)
+    _fetch_done = [0]      # mutable counter for thread-safe progress
+
+    def _fetch_and_count(ein):
+        result = _fast_fetch(ein)
+        _fetch_done[0] += 1
+        return result
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(_fast_fetch, ein): ein for ein in candidates}
+        for future in as_completed(futures):
+            ein_res, detail = future.result()
+            org_detail_cache[ein_res] = detail
+            done = len(org_detail_cache)
+            # Update UI every 100 orgs (avoid overwhelming Streamlit)
+            if done % 100 == 0 or done == total_screen:
+                pct = done / total_screen
+                bar_screen.progress(pct, text=f"Fetching: {done:,} / {total_screen:,}")
+                with metrics_row.container():
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("🏗️ Orgs Found", f"{len(candidates):,}")
+                    c2.metric("⚡ Fetched",    f"{done:,}")
+                    c3.metric("✅ Passed",     f"{n_pass + n_flag}")
+                    c4.metric("✖ Out",        f"{n_fail:,}")
+
+    # Step 2b: Screen all orgs sequentially (instant — no more API calls)
+    phase_label.markdown("### 🔬 Phase 2 of 4 — Eligibility Screening")
+    bar_screen.progress(0.0, text=f"Screening: 0 / {total_screen:,}")
+    live_pass_placeholder = st.empty()  # show passing foundations as found
+    live_passing_names = []
 
     for i, (ein, search_org) in enumerate(candidate_items, 1):
         name = search_org.get("name") or str(ein)
-
-        # ── PRE-SCREEN (no API call) ─────────────────────────────────────
         # The ProPublica search result already includes foundation_code from
         # the IRS BMF. If the org is a public charity (codes 10-21), we can
         # fail it immediately without making an expensive fetch_org_detail
