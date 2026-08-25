@@ -116,12 +116,14 @@ with st.sidebar:
 
     depth = st.radio(
         "Search depth",
-        options=["Quick (~8 min)", "Standard (~20 min) ★ Recommended", "Full (~45 min)"],
+        options=["Quick (~6 min)", "Standard (~15 min) ★ Recommended", "Full (~35 min)"],
         index=1,
         help=(
             "Quick: 3 pages/state, ~1,500 foundations — good for testing.\n"
             "Standard: 10 pages/state, ~4,000 foundations — best balance.\n"
-            "Full: exhaustive Indiana + 20 pages bordering — most complete."
+            "Full: exhaustive Indiana + 20 pages bordering — most complete.\n\n"
+            "Note: screening is now very fast (<2 min for any depth). "
+            "Most time is spent in Phase 1 crawling search results."
         ),
     )
 
@@ -174,11 +176,11 @@ with col_btn:
     run_clicked = st.button("🔍 Run Grant Search", type="primary", use_container_width=True)
 with col_hint:
     if "Quick" in depth:
-        st.info("**Quick mode**: 3 pages/state · ~8 min · good for testing")
+        st.info("**Quick mode**: 3 pages/state · ~6 min · good for testing")
     elif "Standard" in depth:
-        st.success("**Standard mode ★**: 10 pages/state · ~20 min · recommended balance")
+        st.success("**Standard mode ★**: 10 pages/state · ~15 min · recommended balance")
     else:
-        st.warning("**Full mode**: exhaustive Indiana · ~45 min · most complete")
+        st.warning("**Full mode**: exhaustive Indiana · ~35 min · most complete")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
