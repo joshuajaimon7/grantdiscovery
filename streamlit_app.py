@@ -205,13 +205,12 @@ if st.session_state.results is None:
         st.session_state.n_flag  = cached["n_flag"]
         st.session_state.n_fail  = cached["n_fail"]
 
-# Show banner at the top if results already exist
-if st.session_state.results:
+# Show banner at the top if results already exist from a previous run
+if st.session_state.results is not None:
     n_ready = st.session_state.n_pass + st.session_state.n_flag
     st.success(
         f"📊 Results from last run are ready below — **{n_ready} foundations passed**. "
-        "Scroll down to see them ↓",
-        icon="✅",
+        "Scroll down to see them ↓"
     )
 
 
@@ -382,19 +381,24 @@ if run_clicked:
     phase_label.empty(); metrics_row.empty()
     bar_search.empty();  bar_screen.empty(); action_txt.empty()
 
+    # Show prominent completion message — results render inline below
+    # NOTE: do NOT call st.rerun() here. After a 20-min run the WebSocket
+    # is often degraded; rerun causes a restart that loses session state.
+    # Instead, let the results section below render in the same pass.
     st.balloons()
     st.success(
         f"✅ Complete! Screened **{len(all_records):,}** foundations — "
-        f"**{n_pass + n_flag}** passed · {n_fail:,} screened out."
+        f"**{n_pass + n_flag}** passed · {n_fail:,} screened out.  \n"
+        "**The full results are right below — scroll down ↓**"
     )
-    # Force a rerun so the results section renders cleanly below
-    st.rerun()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# RESULTS DISPLAY  (shown after run, or after page refresh if session persists)
+# RESULTS DISPLAY  (renders inline after run, or on refresh if cache exists)
 # ─────────────────────────────────────────────────────────────────────────────
-if st.session_state.results:
+# Bug-safe check: use `is not None` not truthiness — an empty list [] is falsy
+# but still means we ran and got results (just 0 passing). Always show the section.
+if st.session_state.results is not None:
     records = st.session_state.results
     ts      = st.session_state.run_ts
     n_pass  = st.session_state.n_pass
@@ -433,7 +437,19 @@ if st.session_state.results:
     # ── Tab 1: Top candidates ────────────────────────────────────────────
     with tab1:
         if not passing:
-            st.info("No passing candidates found. Try expanding the search depth.")
+            st.warning(
+                "**No foundations passed all screening rules in this run.**\n\n"
+                "This can happen because:\n"
+                "- The search was capped at fewer pages (try **Full** depth in the sidebar)\n"
+                "- All Indiana private foundations in this batch were operating foundations "
+                "(zero grants paid) or public charities — both are correctly filtered out\n"
+                "- The screening rules are strict by design to avoid wasting Kirstie's time\n\n"
+                "**What to try:**\n"
+                "1. Switch to **Full (~45 min)** depth in the sidebar and run again\n"
+                "2. Check the **📋 Full Table** tab to see all screened foundations and why each failed\n"
+                "3. Lower the Min Assets threshold in the sidebar (currently $50,000)"
+            )
+
         else:
             st.caption(f"{len(passing)} foundations passed screening — showing top 10")
             for r in passing[:10]:
